@@ -37,9 +37,14 @@ class ResolveSymbolsCommand(gdb.Command):
 		print("Command `symresolve` initialized.")
 		return
 
-	def initr2(self, binary, base_addr=0, silent=False):
+	def initr2(self, binary, base_addr=0, silent=False, project=None):
 		if self.__r2__ == None:
 			self.__r2__ = r2pipe.open(binary)
+		if not silent:
+			print("Opening binary: {}".format(binary))
+		if project:
+			print("Opening project {}...".format(project))
+			self.__r2__.cmd("Po {}".format(project))
 		objs = self.__r2__.cmd("f~obj").splitlines()
 		for obj in objs:
 			rva, sz, symname = obj.split()[:3]
@@ -61,7 +66,19 @@ class ResolveSymbolsCommand(gdb.Command):
 	def invoke(self, arguments, from_tty):
 		"""Load symbols from binary, and resolve to proper address. """
 		maps = gdb.execute("info proc map", to_string=True).splitlines()
-		base_map = maps[4].split()
+		filename = gdb.current_progspace().filename
+		print("Program filename: {}".format(filename))
+		base_map = None
+		potential_maps = [_map.split() for _map in maps[4:]]
+		for _map in potential_maps:
+			if filename in _map[-1]:
+				print("Found {}".format(_map))
+				base_map = _map
+				break
+		if not base_map:
+			print("Coudln't find base map. :(")
+			return
+		print("base map: {}".format(repr(base_map)))
 		binary = base_map[-1]
 		if not Syms.__baseaddr__:
 			Syms.__baseaddr__ = int(base_map[0], 16)
@@ -69,13 +86,19 @@ class ResolveSymbolsCommand(gdb.Command):
 			if 'heap' in line:
 				Syms.__heap__ = int(line.split()[1],0)
 				gdb.execute("set $heap={heap}".format(heap=Syms.__heap__))
+		if not isinstance(arguments, list):
+			arguments = arguments.split()
+		print("Arguments:" + repr(arguments))
 		silent = 'q' in arguments or '-q' in arguments
-		self.initr2(binary, Syms.__baseaddr__, silent)
+		project = None
+		if '-p' in arguments:
+			project = arguments[arguments.index('-p')+1]
+		self.initr2(binary, Syms.__baseaddr__, silent, project)
 		print("Done.")
 		return
 
 	def usage(self):
-		print("Usage: resolvesymbols")
+		print("Usage: symresolve")
 
 class AddRelativeCommand(gdb.Command):
 	__cmdline__ = "addrel"
